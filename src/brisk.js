@@ -116,20 +116,19 @@ if(!String.prototype.toBool)
     }
 
 //polyfill to extend the Uint8Array (data stream) to convert to a string
-if (!Uint8Array.prototype.toString)
-    Uint8Array.prototype.toString = function () {
-        var chunkSize = 0x8000;
-        var index = 0;
-        var length = this.length;
-        var result = "";
-        var slice;
-        while (index < length) {
-            slice = this.subarray(index, Math.min(index + chunkSize, length));
-            result += String.fromCharCode.apply(null, slice);
-            index += chunkSize;
-        }
-        return result;
+Uint8Array.prototype.toString = function () {
+    var chunkSize = 0x8000;
+    var index = 0;
+    var length = this.length;
+    var result = "";
+    var slice;
+    while (index < length) {
+        slice = this.subarray(index, Math.min(index + chunkSize, length));
+        result += String.fromCharCode.apply(null, slice);
+        index += chunkSize;
     }
+    return result;
+}
 
 //polyfill to extend the Uint8Array to convert to a base64 string
 if (!Uint8Array.prototype.toBase64)
