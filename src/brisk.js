@@ -1572,3 +1572,4 @@ var Brisk = Brisk || function ($, win) {
 //create global single class instance references
 var B_ = Brisk($, window); //inject jQuery and global window dependencies
 Brisk = B_; //re-assign seperately for strict-mode adherance
+
