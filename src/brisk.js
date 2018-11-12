@@ -1,4 +1,4 @@
-﻿/// <reference path="../jquery.intellisense.js" />
+﻿// <reference path="../jquery.intellisense.js" />
 "use strict";
 
 /*
@@ -76,7 +76,7 @@ if (!String.prototype.replaceChr)
         var a = (this + "").split(""); //string copy to avoid extension reference bleeding
         a[index] = str;
         return a.join("");
-    }
+    };
 
 //polyfill to extend the String object to add the replaceAt function for a string range
 if (!String.prototype.replaceAt)
@@ -84,19 +84,19 @@ if (!String.prototype.replaceAt)
         var a = (this + "").split(""); //string copy to avoid extension reference bleeding
         a.splice(startIndex, endIndex - startIndex, str);
         return a.join("");
-    }
+    };
 
 //polyfill to extend the String object to add the trim function if does not already exist
 if (!String.prototype.trim)
     String.prototype.trim = function () {
         return (this + "").replace(/^\s+|\s+$/gmi, ""); //string copy to avoid extension reference bleeding
-    }
+    };
 
 //polyfill to extend the String object to add the startsWith function if does not already exist
 if (!String.prototype.startsWith)
     String.prototype.startsWith = function (search) {
         return (this + "").substr(0, search.length) === search; //string copy to avoid extension reference bleeding
-    }
+    };
 
 //polyfill to extend the String object to add the endsWith function if does not already exist
 if (!String.prototype.endsWith)
@@ -104,105 +104,160 @@ if (!String.prototype.endsWith)
         var thisStr = this + ""; //string copy to avoid extension reference bleeding
         var position = thisStr.length - search.length;
         return thisStr.indexOf(search, position) === position;
-    }
+    };
 
 //polyfill to extend the String object to add the toBool function
-if(!String.prototype.toBool)
+if (!String.prototype.toBool)
     String.prototype.toBool = function () {
         var a = (this + "").trim(); //string copy to avoid extension reference bleeding
         if (!/^(false|true|1|0|yes|no|on|off|set|clear)(?!.+)$/gmi.test(a) || /^(false|0|no|off|clear)(?!.+)$/gmi.test(a))
             return false;
         return true;
-    }
+    };
 
 //polyfill to extend the Uint8Array (data stream) to convert to a string
-Uint8Array.prototype.toString = function () {
-    var chunkSize = 0x8000;
-    var index = 0;
-    var length = this.length;
-    var result = "";
-    var slice;
-    while (index < length) {
-        slice = this.subarray(index, Math.min(index + chunkSize, length));
-        result += String.fromCharCode.apply(null, slice);
-        index += chunkSize;
-    }
-    return result;
-}
+if (!Uint8Array.prototype.toFlatString)
+    Uint8Array.prototype.toFlatString = function () {
+        var chunkSize = 0x8000;
+        var index = 0;
+        var length = this.length;
+        var result = "";
+        var slice;
+        while (index < length) {
+            slice = this.subarray(index, Math.min(index + chunkSize, length));
+            result += String.fromCharCode.apply(null, slice);
+            index += chunkSize;
+        }
+        return result;
+    };
 
 //polyfill to extend the Uint8Array to convert to a base64 string
 if (!Uint8Array.prototype.toBase64)
     Uint8Array.prototype.toBase64 = function () {
-        return btoa(this.toString());
-    }
+        return btoa(this.toFlatString());
+	};
+
+//reverse polyfill for threaded timers using workers
+window.setIntervalW = setInterval;
+window.clearIntervalW = clearInterval;
+window.setTimeoutW = setTimeout;
+window.clearTimeoutW = clearTimeout;
+if (Worker && URL && URL.createObjectURL) {
+	Worker.threads = {};
+	Worker.threads.uid = 0;
+	var blobPrefix = "self.addEventListener('message',function(e){switch(e.data.c){case 'a':self.active=e.data.v;break;case 's':var k=";
+	var blobSuffix = "(function(){if(self.active)postMessage('');},e.data.t);postMessage({'k':k,'l':e.data.l});break;case 'c':clearInterval(e.data.k);break;}});";
+	var clearThread = function (localKey) {
+		var worker = Worker.threads["_" + localKey];
+		if (!worker) return;
+		if (!worker.key) {
+			worker.key = 0;
+			worker.postMessage({ "c": "a", "v": false });
+			return;
+		}
+		worker.postMessage({ "c": "c", "k": worker.key });
+		worker.terminate();
+		delete Worker.threads["_" + localKey];
+	};
+	var setThread = function (handler, timeout, worker) {
+		var localKey = ++Worker.threads.uid;
+		if (localKey === 0) ++Worker.threads.uid;
+		Worker.threads["_" + localKey] = worker;
+		worker.addEventListener("message", function (e) {
+			if (e.data) {
+				var cancelled = (Worker.threads["_" + e.data.l].key === 0);
+				worker.key = e.data.k;
+				if (cancelled)
+					clearThread(e.data.l);
+				else
+					worker.postMessage({ "c": "a", "v": true });
+			}
+			else handler();
+		}, false);
+		worker.postMessage({ "c": "s", "t": timeout, "l": localKey });
+		return localKey;
+	};
+
+	var iBlobUrl = URL.createObjectURL(new Blob([blobPrefix + "setInterval" + blobSuffix]));
+	window.setIntervalW = function (handler, timeout) {
+		return setThread(handler, timeout, new Worker(iBlobUrl));
+	};
+	window.clearIntervalW = clearThread;
+
+	var tBlobUrl = URL.createObjectURL(new Blob([blobPrefix + "setTimeout" + blobSuffix + ";self.active=true;"]));
+	window.setTimeoutW = function (handler, timeout) {
+		return setThread(handler, timeout, new Worker(tBlobUrl));
+	};
+	window.clearTimeoutW = clearThread;
+}
 
 //polyfill to merge with a json object to create a case lowercase json keyed object which is also integer indexed for each original key
 if (!window.LowCaseIndex) {
-    var LowCaseIndex = function (mergeObject) {
-        var index = this;
-        if (mergeObject) {
-            var i = 0;
-            for (var key in mergeObject)
-                if (mergeObject.hasOwnProperty(key)) {
-                    var val = mergeObject[key];
-                    index[key] = val;
-                    var lowKey = key.toLowerCase();
-                    if (lowKey !== key)
-                        Object.defineProperty(index, lowKey, {
-                            __proto__: null,
-                            enumerable: false,
-                            configurable: false,
-                            get: function (ii, ki) { return function () { return ii[ki] } }(index, key),
-                            set: function (ii, ki) { return function (value) { ii[ki] = value } }(index, key)
-                        });
-                    index[i++] = key;
-                }
-            index.length = i;
-        }
+	var LowCaseIndex = function (mergeObject) {
+		var index = this;
+		if (mergeObject) {
+			var i = 0;
+			for (var key in mergeObject)
+				if (mergeObject.hasOwnProperty(key)) {
+					var val = mergeObject[key];
+					index[key] = val;
+					var lowKey = key.toLowerCase();
+					if (lowKey !== key)
+						Object.defineProperty(index, lowKey, {
+							__proto__: null,
+							enumerable: false,
+							configurable: false,
+							get: function (ii, ki) { return function () { return ii[ki]; }; }(index, key),
+							set: function (ii, ki) { return function (value) { ii[ki] = value; }; }(index, key)
+						});
+					index[i++] = key;
+				}
+			index.length = i;
+		}
 
-        this.expectBool = function (fieldName) {
-            var index = this;
-            var valCheck = index[fieldName.toLowerCase()];
-            var ret = null;
-            if (typeof valCheck === "function")
-                valCheck = valCheck(index);
-            if (typeof valCheck === "string")
-                ret = valCheck.toBool();
-            else if (typeof valCheck === "boolean")
-                ret = valCheck;
-            return ret;
-        }
+		this.expectBool = function (fieldName) {
+			var index = this;
+			var valCheck = index[fieldName.toLowerCase()];
+			var ret = null;
+			if (typeof valCheck === "function")
+				valCheck = valCheck(index);
+			if (typeof valCheck === "string")
+				ret = valCheck.toBool();
+			else if (typeof valCheck === "boolean")
+				ret = valCheck;
+			return ret;
+		};
 
-        this.expectNum = function (fieldName) {
-            var index = this;
-            var valCheck = index[fieldName.toLowerCase()];
-            var ret = null;
-            if (typeof valCheck === "function")
-                valCheck = valCheck(index);
-            if (typeof valCheck === "string")
-                ret = new Number(valCheck);
-            else if (typeof valCheck === "number")
-                ret = valCheck;
-            return ret;
-        }
+		this.expectNum = function (fieldName) {
+			var index = this;
+			var valCheck = index[fieldName.toLowerCase()];
+			var ret = null;
+			if (typeof valCheck === "function")
+				valCheck = valCheck(index);
+			if (typeof valCheck === "string")
+				ret = new Number(valCheck);
+			else if (typeof valCheck === "number")
+				ret = valCheck;
+			return ret;
+		};
 
-        this.expectStr = function (fieldName) {
-            var index = this;
-            var valCheck = index[fieldName.toLowerCase()];
-            var ret = null;
-            if (typeof valCheck === "function")
-                valCheck = valCheck(index);
-            if (valCheck === null || valCheck === undefined)
-                return null;
-            if (typeof valCheck === "string")
-                ret = valCheck;
-            else
-                ret = valCheck + "";
-            return ret;
-        }
+		this.expectStr = function (fieldName) {
+			var index = this;
+			var valCheck = index[fieldName.toLowerCase()];
+			var ret = null;
+			if (typeof valCheck === "function")
+				valCheck = valCheck(index);
+			if (valCheck === null || valCheck === undefined)
+				return null;
+			if (typeof valCheck === "string")
+				ret = valCheck;
+			else
+				ret = valCheck + "";
+			return ret;
+		};
 
-        return index;
-    }
+		return index;
+	};
     LowCaseIndex.prototype = [];
 }
 
@@ -281,7 +336,7 @@ var Brisk = Brisk || function ($, win) {
                         end = length;
                     }
 
-                    var props = {
+                    var propsOut = {
                         position: start,
                         start: start,
                         end: end,
@@ -289,7 +344,7 @@ var Brisk = Brisk || function ($, win) {
                         text: range.text
                     };
 
-                    return typeof property === "undefined" ? props : props[property];
+                    return typeof property === "undefined" ? propsOut : propsOut[property];
                 },
 
                 set: function (start, end) {
@@ -388,7 +443,7 @@ var Brisk = Brisk || function ($, win) {
 
     function internalBr() {
         //br instance members
-        var _version = "17.10.6";
+        var _version = "18.11.12";
         this._ids = {}; //quick lookup for br-id elements
         //initial list of built-in custom attributes and their associated handlers
         this._attrs = {}; //delegate format: function(currentBriskInstance, elementWithAttribute)
@@ -397,7 +452,12 @@ var Brisk = Brisk || function ($, win) {
         this._jsCallAttributeName = "br-call";
         this._ajaxViewAttributeName = "br-view";
         this._viewRefreshAttributeName = "br-refresh";
-        this._ajaxAttributeName = "br-ajax";
+		this._ajaxAttributeName = "br-ajax";
+		this._restGet = "br-restGet";
+		this._restPut = "br-restPut";
+		this._restPost = "br-restPost";
+		this._restPatch = "br-restPatch";
+		this._restDelete = "br-restDelete";
         this._noSelectAttributeName = "br-noSelect";
         this._noDragAttributeName = "br-noDrag";
         this._allowedServerThreads = 6; //maximum concurrent asychronous server operations, default to 6
@@ -413,23 +473,23 @@ var Brisk = Brisk || function ($, win) {
             //throttle the events
             $obj.on("DOMNodeInserted", function (e) {
                 if (addThreadId) {
-                    clearTimeout(addThreadId);
+                    clearTimeoutW(addThreadId);
                     addThreadId = null;
                 }
-                addThreadId = setTimeout(function () {
+                addThreadId = setTimeoutW(function () {
                     callback(e.target); //true, going down
                 }, 10);
             });
             $obj.on("DOMNodeRemoved", function (e) {
                 if (addThreadId) {
-                    clearTimeout(addThreadId);
+                    clearTimeoutW(addThreadId);
                     addThreadId = null;
                 }
                 if (remThreadId) {
-                    clearTimeout(remThreadId);
+                    clearTimeoutW(remThreadId);
                     remThreadId = null;
                 }
-                remThreadId = setTimeout(function () {
+                remThreadId = setTimeoutW(function () {
                     callback(e.target, true); //true, going down
                 }, 10);
             });
@@ -440,7 +500,6 @@ var Brisk = Brisk || function ($, win) {
             var target = e.currentTarget;
             target.brCaretRanging = true;
             var caret = $(target).textrange();
-            //var caret = { start: 0, end: 0 };
             target.brCaretRanging = undefined;
             target.caretStart = caret.start;
             target.caretEnd = caret.end;
@@ -450,10 +509,8 @@ var Brisk = Brisk || function ($, win) {
         this._installCaretTracking = function (elem) {
             if (elem.brCaretSet) return true;
             elem.brCaretSet = true;
-
             elem.caretStart = 0;
             elem.caretEnd = 0;
-
             var events = "keyup input focusin";
             $(elem).on(events, function (e) { if (!e.currentTarget.brCaretRanging) internalBr._setGetCaret(e); return true; });
 
@@ -562,11 +619,10 @@ var Brisk = Brisk || function ($, win) {
                                 if (dmEnd > dmStart)
                                     param = brInst._ids[paramName.substring(dmStart, dmStart + dmEnd).trim()];
                             } else { //standard variable
-                                try {
-                                    param = eval(paramName);
-                                } catch (ex) {
-                                }
-                            }
+								try {
+									param = eval(paramName);
+								} catch (ex) { param = null; }
+							}
                             params.push(param);
                         }
 
@@ -602,34 +658,34 @@ var Brisk = Brisk || function ($, win) {
                 //change br-id refs to strings for later
                 str = str.replace(/\{\{(?!\{)(?=[^\}]+\}\})/gmi, "'{{");
                 var match;
-                while (match = /'\{\{[^}]+\}\}(?!')/gmi.exec(str)) {
+                while ((match = /'\{\{[^}]+\}\}(?!')/gmi.exec(str))) {
                     var insIndex = match.index + match[0].length - 1;
                     str = str.replaceChr(insIndex, "}'");
                 }
                 return eval(str); //eval array
             };
 
-            var toObj = function (str) {
-                var arr = toArr(str);
-                var encap = arr[0];
-                if (typeof (encap) === "function") {
-                    encap = encap(brInst, attr);
-                }
+			var toObj = function (str) {
+				var arr = toArr(str);
+				var encap = arr[0];
+				if (typeof (encap) === "function") {
+					encap = encap(brInst, attr);
+				}
 
-                if (typeof (encap) === "string" && !(encap.startsWith("{{") && encap.endsWith("}}")) && (encap.startsWith("{") || encap.startsWith("[")))
-                    encap = toObj(encap);
+				if (typeof (encap) === "string" && !(encap.startsWith("{{") && encap.endsWith("}}")) && (encap.startsWith("{") || encap.startsWith("[")))
+					encap = toObj(encap);
 
-                if (typeof (encap) !== "object") {
-                    var retArr = [];
-                    retArr.push(encap);
-                    encap = retArr;
-                }
+				if (typeof (encap) !== "object") {
+					var retArr = [];
+					retArr.push(encap);
+					encap = retArr;
+				}
 
-                if (!Array.isArray(encap))
-                    encap = new LowCaseIndex(encap);
+				if (!Array.isArray(encap))
+					encap = new LowCaseIndex(encap);
 
-                return encap;
-            }
+				return encap;
+			};
 
             ret = toObj(jsonString);
             //convert br-ids to references
@@ -699,13 +755,11 @@ var Brisk = Brisk || function ($, win) {
                     Host: win.location.Host
                 },
                 url: url,
-                type: (method) ? method : "POST",
-                //contentType: "application/json;charset=utf-8",
+                type: (method) ? method : "GET",
                 contentType: ((sendFormat) ? sendFormat : "application/json") + ";charset=" + ((textEncoding) ? textEncoding : "utf-8"),
                 dataType: (returnFormat) ? returnFormat : "json",
                 cache: false,
                 crossDomain: (crossDomain === undefined || crossDomain === null) ? true : crossDomain,
-                //isLocal: true,
                 data: sendData,
                 jsonpCallback: (returnFormat === "jsonp") ? newHandler : null,
                 success: (returnFormat !== "jsonp") ? newHandler : null,
@@ -745,7 +799,7 @@ var Brisk = Brisk || function ($, win) {
 
                     $(elem).css("cursor", "inherit");
                     if (startStopHandler) {
-                        if (elem.brStartStopThread) clearTimeout(elem.brStartStopThread);
+                        if (elem.brStartStopThread) clearTimeoutW(elem.brStartStopThread);
                         startStopHandler(elem, false);
                     }
                 }
@@ -816,7 +870,7 @@ var Brisk = Brisk || function ($, win) {
                 };
 
             if (startStopHandler)
-                elem.brStartStopThread = setTimeout(function () { startStopHandler(elem, true); }, 1);
+                elem.brStartStopThread = setTimeoutW(function () { startStopHandler(elem, true); }, 1);
             $(elem).css("cursor", "wait");
 
             if (!$.brServerThreads) $.brServerThreads = 0;
@@ -828,11 +882,11 @@ var Brisk = Brisk || function ($, win) {
                         elem.ajaxStarted = true;
                     }
                     $.brServerThreads++;
-                    if (threadId) clearInterval(threadId);
+                    if (threadId) clearIntervalW(threadId);
                     brInst._ajaxCall(url, method, sendData, newHandler, progressHandler, progressCalc, crossDomain, sendFormat, textEncoding, returnFormat);
                 }
             };
-            threadId = setInterval(beginCall, brInst._threadRetryInterval);
+            threadId = setIntervalW(beginCall, brInst._threadRetryInterval);
             beginCall();
         };
 
@@ -893,20 +947,38 @@ var Brisk = Brisk || function ($, win) {
                 options.sendDataValue += ", \"fields\":" + JSON.stringify(brInst.gatherInputs(elem));
             options.sendDataValue += "}";
             return options.sendDataValue;
-        };
+		};
+
+		//wrap a new custom attribute with some param handling
+		this.customAttributeWrap = function (brInst, elem, attrName, wrap) {
+			if (elem["has_" + attrName]) return null;
+			elem["has_" + attrName] = true; //single initialization
+
+			var attr = elem.attributes[attrName];
+
+			var error = "";
+			try {
+				var params = brInst.parseJSON(attr.value, brInst, attr);
+				if (attr.value.length > 0 && params.length < 1)
+					throw "Failure to parse options properly.";
+
+				wrap(params);
+
+			} catch (ex) {
+				error = "ERROR: " + ex;
+				if (brInst.isDebug) win.brDebugCall(ex);
+			} finally {
+				attr.value = error; //obfuscate attribute after processed, or show user error
+			}
+		};
 
         //called when an element with br-ajax attribute is found
-        this.brAjax = function (brInst, elem) {
-            if (elem.brAjax) return;
-            elem.brAjax = true;
+		//is the root call of other REST verb aliases
+		this.brAjax = function (brInst, elem, attrNameOverride, overrideVerb) {
+			var attrName = (attrNameOverride) ? attrNameOverride : brInst._ajaxAttributeName;
+			brInst.customAttributeWrap(brInst, elem, attrName, function (options) {
 
-            var $elem = $(elem);
-            var attrName = brInst._ajaxAttributeName;
-            var attr = elem.attributes[attrName];
-
-            var error = "";
-            try {
-                var options = brInst.parseJSON(attr.value, brInst, attr);
+				var $elem = $(elem);
                 var valError = "";
                 var err = false;
                 var blocking = true;
@@ -987,9 +1059,9 @@ var Brisk = Brisk || function ($, win) {
                         throw valError;
                 }
 
-                var method = "POST";
+				var method = (overrideVerb) ? overrideVerb : "GET";
                 valCheck = options.expectStr("method");
-                if (valCheck)
+				if (valCheck && !overrideVerb)
                     method = valCheck.toUpperCase();
 
                 var errorCallback = null;
@@ -1011,7 +1083,7 @@ var Brisk = Brisk || function ($, win) {
                     throw "[callback] option is required and must be a function delegate of format: function(sender, response, stateObject).";
                 callback = valCheck;
 
-                var crossDomain = true;
+                var crossDomain = false;
                 valCheck = options.expectBool("crossdomain");
                 if (valCheck !== null)
                     crossDomain = valCheck;
@@ -1069,27 +1141,36 @@ var Brisk = Brisk || function ($, win) {
                     return true;
                 });
 
-            } catch (ex) {
-                error = "ERROR: " + ex;
-                if (brInst.isDebug) win.brDebugCall(ex);
-            } finally {
-                attr.value = error; //obfuscate attribute after processed, or show user error
-            }
-        };
+			});
+		};
+
+		//rest aliases
+		this.brRestGet = function (brInst, elem) {
+			brInst.brAjax(brInst, elem, brInst._restGet, "GET");
+		};
+
+		this.brRestPut = function (brInst, elem) {
+			brInst.brAjax(brInst, elem, brInst._restPut, "PUT");
+		};
+
+		this.brRestPost = function (brInst, elem) {
+			brInst.brAjax(brInst, elem, brInst._restPost, "POST");
+		};
+
+		this.brRestPatch = function (brInst, elem) {
+			brInst.brAjax(brInst, elem, brInst._restPatch, "PATCH");
+		};
+
+		this.brRestDelete = function (brInst, elem) {
+			brInst.brAjax(brInst, elem, brInst._restDelete, "DELETE");
+		};
 
         //called when an element with br-View attribute is found
-        this.brView = function (brInst, elem) {
-            if (elem.brView) return; //single initialization
-            elem.brView = true;
+		this.brView = function (brInst, elem) {
+			var attrName = brInst._ajaxViewAttributeName;
+			brInst.customAttributeWrap(brInst, elem, attrName, function (options) {
 
-            var attr = elem.attributes[internalBr._ajaxViewAttributeName];
-
-            var error = "";
-            try {
-                var options = brInst.parseJSON(attr.value, brInst, attr);
-                if (attr.value.length > 0 && options.length < 1)
-                    throw "Failure to parse options properly.";
-
+				var $elem = $(elem);
                 var errorCallback = null;
                 var valCheck = options.errorcallback;
                 if (valCheck) {
@@ -1113,7 +1194,7 @@ var Brisk = Brisk || function ($, win) {
                     url = (parentForm) ? parentForm.action : ".";
                 }
 
-                var method = "POST";
+                var method = "GET";
                 valCheck = options.method;
                 if (valCheck)
                     method = valCheck.toUpperCase();
@@ -1183,119 +1264,77 @@ var Brisk = Brisk || function ($, win) {
 
                 //install a refresh function on the element
                 //allow a callback when ajax call completes
-                elem.brViewRefresh = function (callback) {
-                    if (typeof callback === "function")
-                        refreshCallback = callback;
-                    loadView();
-                }
+				elem.brViewRefresh = function (callback) {
+					if (typeof callback === "function")
+						refreshCallback = callback;
+					loadView();
+				};
 
                 if (refreshInterval > 0)
-                    setInterval(loadView, refreshInterval * 1000);
+                    setIntervalW(loadView, refreshInterval * 1000);
 
                 if (!delayed) loadView();
 
-            } catch (ex) {
-                error = "ERROR: " + ex;
-                if (brInst.isDebug) win.brDebugCall(ex);
-            } finally {
-                attr.value = error; //obfuscate attribute after processed, or show user error
-            }
-
-        };
+			});
+		};
 
         //called when an element with br-Refresh attribute is found
-        this.brRefresh = function (brInst, elem) {
-            if (elem.brHasViewRefresh) return; //single initialization
-            elem.brHasViewRefresh = true;
-
-            var attrName = brInst._viewRefreshAttributeName;
-            var attr = elem.attributes[attrName];
-
-            var error = "";
-            try {
-                var params = brInst.parseJSON(attr.value, brInst, attr);
-                if (attr.value.length > 0 && params.length < 1)
-                    throw "Failure to parse br-ids list properly.";
-
-                $(elem).click(function () {
-                    for (var objIndex in params) {
-                        var obj = params[objIndex];
-                        if (obj && typeof (obj.brViewRefresh) === "function")
-                            obj.brViewRefresh();
-                        else
-                            console.log("Call [" + attrName + "]: " + brInst._idAttributeName + "=" + obj + " not found.");
-                    }
-                });
-
-            } catch (ex) {
-                error = "ERROR: " + ex;
-                if (brInst.isDebug) win.brDebugCall(ex);
-            } finally {
-                attr.value = error; //obfuscate attribute after processed, or show user error
-            }
+		this.brRefresh = function (brInst, elem) {
+			var attrName = brInst._viewRefreshAttributeName;
+			brInst.customAttributeWrap(brInst, elem, attrName, function (options) {
+				$(elem).click(function () {
+					for (var objIndex in options) {
+						var obj = options[objIndex];
+						if (obj && typeof (obj.brViewRefresh) === "function")
+							obj.brViewRefresh();
+						else
+							console.log("Call [" + attrName + "]: " + brInst._idAttributeName + "=" + obj + " not found.");
+					}
+				});
+			});
         };
-
-        //install supporting style rule for brNoSelect
-        //$("<style>").prop("type", "text/css").html("." + this._noSelectAttributeName + " { cursor: default; -webkit-touch-callout: none; -webkit-user-select: none; -khtml-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }").appendTo("head");
 
         //called when an element with br-noSelect attribute is found
         this.brNoSelect = function (brInst, elem) {
             var $topElem = $(elem);
             var attr = elem.attributes[brInst._noSelectAttributeName];
             var val = attr.value.toBool();
-            /*if (elem.brHasNoSelect) {
-                if (elem.brNoSelect !== val) {
-                    if (val)
-                        $topElem.addClass(brInst._noSelectAttributeName);
-                    else
-                        $topElem.removeClass(brInst._noSelectAttributeName);
-                    elem.brNoSelect = val;
-                }
-                return; //single initialization
-            }*/
             elem.brHasNoSelect = true;
 
             var noSelectAction = "selectstart";
 
-            var prevent = function (e) {
-                //var $target = $(e.target);
-                //var hasClass = $target.hasClass(brInst._noSelectAttributeName);
+			var prevent = function (e) {
 
-                if (e.target.brNoSelect === true) {
-                    /*if (!hasClass)
-                        $target.addClass(brInst._noSelectAttributeName);*/
-                    e.preventDefault();
-                    return false;
-                }
+				if (e.target.brNoSelect === true) {
+					e.preventDefault();
+					return false;
+				}
 
-                /*if (hasClass)
-                    $target.removeClass(brInst._noSelectAttributeName);*/
-                return true;
-            }
+				return true;
+			};
 
-            var recurse = function ($children) {
-                if ($children && $children.length > 0)
-                    $children.each(function (i, child) {
-                        var $child = $(child);
-                        recurse($child.children());
+			var recurse = function ($children) {
+				if ($children && $children.length > 0)
+					$children.each(function (i, child) {
+						var $child = $(child);
+						recurse($child.children());
 
-                        //single initialization, allow toggle
-                        if (child.brNoSelect !== undefined) {
-                            if (child.brNoSelect !== val) child.brNoSelect = val;
-                            return true;
-                        }
+						//single initialization, allow toggle
+						if (child.brNoSelect !== undefined) {
+							if (child.brNoSelect !== val) child.brNoSelect = val;
+							return true;
+						}
 
-                        var tagName = child.tagName.toLowerCase();
-                        var childVal = val;
-                        if (tagName === "input" || tagName === "textarea")
-                            childVal = false;
+						var tagName = child.tagName.toLowerCase();
+						var childVal = val;
+						if (tagName === "input" || tagName === "textarea")
+							childVal = false;
 
-                        child.brNoSelect = childVal;
-                        $child.on(noSelectAction, prevent);
-                        //$child.addClass(brInst._noSelectAttributeName);
-                        return true;
-                    });
-            }
+						child.brNoSelect = childVal;
+						$child.on(noSelectAction, prevent);
+						return true;
+					});
+			};
             recurse($topElem.children());
 
             //single initialization, allow toggle
@@ -1317,40 +1356,40 @@ var Brisk = Brisk || function ($, win) {
 
             var noDragAction = "dragstart";
 
-            var prevent = function (e) {
-                var $target = $(e.target);
+			var prevent = function (e) {
+				var $target = $(e.target);
 
-                if (e.target.brNoDrag === true) {
-                    $target.click();
-                    e.preventDefault();
-                    return false;
-                }
+				if (e.target.brNoDrag === true) {
+					$target.click();
+					e.preventDefault();
+					return false;
+				}
 
-                return true;
-            }
+				return true;
+			};
 
-            var recurse = function ($children) {
-                if ($children && $children.length > 0)
-                    $children.each(function (i, child) {
-                        var $child = $(child);
-                        recurse($child.children());
+			var recurse = function ($children) {
+				if ($children && $children.length > 0)
+					$children.each(function (i, child) {
+						var $child = $(child);
+						recurse($child.children());
 
-                        //single initialization, allow toggle
-                        if (child.brNoDrag !== undefined) {
-                            if (child.brNoDrag !== val) child.brNoDrag = val;
-                            return true;
-                        }
+						//single initialization, allow toggle
+						if (child.brNoDrag !== undefined) {
+							if (child.brNoDrag !== val) child.brNoDrag = val;
+							return true;
+						}
 
-                        var tagName = child.tagName.toLowerCase();
-                        var childVal = val;
-                        if (tagName === "input" || tagName === "textarea")
-                            childVal = false;
+						var tagName = child.tagName.toLowerCase();
+						var childVal = val;
+						if (tagName === "input" || tagName === "textarea")
+							childVal = false;
 
-                        child.brNoDrag = childVal;
-                        $child.on(noDragAction, prevent);
-                        return true;
-                    });
-            }
+						child.brNoDrag = childVal;
+						$child.on(noDragAction, prevent);
+						return true;
+					});
+			};
             recurse($topElem.children());
 
             //single initialization, allow toggle
@@ -1400,152 +1439,152 @@ var Brisk = Brisk || function ($, win) {
         };
 
         //used for JSON lists to get the first object id if any, good for ordered key.value pairs with a single pair to get the key name
-        this.firstKey = function (keyValuePair) {
-            if (keyValuePair)
-                for (var key in keyValuePair)
-                    if (key !== "foundIndex" && keyValuePair.hasOwnProperty(key))
-                        return key;
-            return null;
-        }
+		this.firstKey = function (keyValuePair) {
+			if (keyValuePair)
+				for (var key in keyValuePair)
+					if (key !== "foundIndex" && keyValuePair.hasOwnProperty(key))
+						return key;
+			return null;
+		};
 
         //used for JsonArrays to find keyvalue pairs by key name
-        this.findPair = function (jsonArray, keyToFind) {
-            if (typeof jsonArray === "object" && typeof keyToFind === "string")
-                for (var kvpIndex in jsonArray) {
-                    var keyValuePair = jsonArray[kvpIndex];
-                    var key = publicBr.firstKey(keyValuePair);
-                    if (key && keyToFind.toLowerCase() === key.toLowerCase()) {
-                        keyValuePair.foundIndex = kvpIndex;
-                        return keyValuePair;
-                    }
-                }
-            return null;
-        }
+		this.findPair = function (jsonArray, keyToFind) {
+			if (typeof jsonArray === "object" && typeof keyToFind === "string")
+				for (var kvpIndex in jsonArray) {
+					var keyValuePair = jsonArray[kvpIndex];
+					var key = publicBr.firstKey(keyValuePair);
+					if (key && keyToFind.toLowerCase() === key.toLowerCase()) {
+						keyValuePair.foundIndex = kvpIndex;
+						return keyValuePair;
+					}
+				}
+			return null;
+		};
 
-        this.getUrlVarsJsonArray = function (urlVars) {
-            var ret = [];
-            var hash = urlVars;
-            var splits = hash.split("&");
-            for (var i = 0; i < splits.length; i++) {
-                var key = splits[i];
-                if (key.length < 1) continue;
-                var val = null;
-                var kvSplits = key.split("=");
-                if (kvSplits.length > 1) {
-                    try {
-                        key = decodeURIComponent(kvSplits[0]);
-                        val = decodeURIComponent(kvSplits[1]);
-                    } catch (ex) { }
-                }
-                if (i === 0)
-                    key = key.substr(1, key.length - 1);
-                var kvPair = {};
-                kvPair[key] = val;
-                ret.push(kvPair);
-            }
-            return ret;
-        }
+		this.getUrlVarsJsonArray = function (urlVars) {
+			var ret = [];
+			var hash = urlVars;
+			var splits = hash.split("&");
+			for (var i = 0; i < splits.length; i++) {
+				var key = splits[i];
+				if (key.length < 1) continue;
+				var val = null;
+				var kvSplits = key.split("=");
+				if (kvSplits.length > 1) {
+					try {
+						key = decodeURIComponent(kvSplits[0]);
+						val = decodeURIComponent(kvSplits[1]);
+					} catch (ex) { val = null; }
+				}
+				if (i === 0)
+					key = key.substr(1, key.length - 1);
+				var kvPair = {};
+				kvPair[key] = val;
+				ret.push(kvPair);
+			}
+			return ret;
+		};
 
-        this.objectToString = function (obj, encapStrings) {
-            var ret = "";
+		this.objectToString = function (obj, encapStrings) {
+			var ret = "";
 
-            if (obj === null || typeof obj === "undefined")
-                ret = "null";
-            else if (typeof obj === "string") {
-                var encap = "";
-                if (encapStrings) encap = "\"";
-                ret = encap + obj + encap;
-            } else if (typeof obj === "boolean" ||
-                typeof obj === "number")
-                ret = obj + "";
-            else if (typeof obj === "function")
-                ret = obj(encapStrings) + "";
-            else
-                ret = JSON.stringify(obj);
+			if (obj === null || typeof obj === "undefined")
+				ret = "null";
+			else if (typeof obj === "string") {
+				var encap = "";
+				if (encapStrings) encap = "\"";
+				ret = encap + obj + encap;
+			} else if (typeof obj === "boolean" ||
+				typeof obj === "number")
+				ret = obj + "";
+			else if (typeof obj === "function")
+				ret = obj(encapStrings) + "";
+			else
+				ret = JSON.stringify(obj);
 
-            return ret;
-        }
+			return ret;
+		};
 
-        this.setLocationHash = function (jsonArray) {
-            if (typeof jsonArray !== "object") return;
-            var setVal = "#";
-            for (var jvi in jsonArray) {
-                var kvPair = jsonArray[jvi];
-                for (var jv in kvPair) {
-                    if (jv !== "foundIndex" && kvPair.hasOwnProperty(jv)) {
-                        setVal += jv;
-                        var value = kvPair[jv];
-                        setVal += "=" + encodeURIComponent(publicBr.objectToString(value)) + "&";
-                    }
-                }
-            }
-            if (setVal.length > 1)
-                setVal = setVal.substr(0, setVal.length - 1);
+		this.setLocationHash = function (jsonArray) {
+			if (typeof jsonArray !== "object") return;
+			var setVal = "#";
+			for (var jvi in jsonArray) {
+				var kvPair = jsonArray[jvi];
+				for (var jv in kvPair) {
+					if (jv !== "foundIndex" && kvPair.hasOwnProperty(jv)) {
+						setVal += jv;
+						var value = kvPair[jv];
+						setVal += "=" + encodeURIComponent(publicBr.objectToString(value)) + "&";
+					}
+				}
+			}
+			if (setVal.length > 1)
+				setVal = setVal.substr(0, setVal.length - 1);
 
-            win.brLocationChanging = true;
-            location.hash = setVal;
-            setTimeout(function () { win.brLocationChanging = undefined; }, 10);
-        }
+			win.brLocationChanging = true;
+			location.hash = setVal;
+			setTimeoutW(function () { win.brLocationChanging = undefined; }, 10);
+		};
 
-        this.getLocationHash = function (jsonArray) {
-            win.brLocationChanging = true;
-            var ret = publicBr.getUrlVarsJsonArray(location.hash);
-            setTimeout(function () { win.brLocationChanging = undefined; }, 10);
-            return ret;
-        }
+		this.getLocationHash = function (jsonArray) {
+			win.brLocationChanging = true;
+			var ret = publicBr.getUrlVarsJsonArray(location.hash);
+			setTimeoutW(function () { win.brLocationChanging = undefined; }, 10);
+			return ret;
+		};
 
-        this.getHashValue = function (keyName) {
-            var ret = null;
-            var hashArray = publicBr.getLocationHash();
-            var hashSortCol = publicBr.findPair(hashArray, keyName);
-            if (hashSortCol)
-                ret = hashSortCol[keyName];
-            return ret;
-        }
+		this.getHashValue = function (keyName) {
+			var ret = null;
+			var hashArray = publicBr.getLocationHash();
+			var hashSortCol = publicBr.findPair(hashArray, keyName);
+			if (hashSortCol)
+				ret = hashSortCol[keyName];
+			return ret;
+		};
 
-        this.setHashValue = function (keyName, value) {
-            var hashArray = publicBr.getLocationHash();
-            var pair = publicBr.findPair(hashArray, keyName);
-            if (!pair) {
-                pair = {};
-                hashArray.push(pair);
-            }
-            pair[keyName] = value;
-            publicBr.setLocationHash(hashArray);
-        }
+		this.setHashValue = function (keyName, value) {
+			var hashArray = publicBr.getLocationHash();
+			var pair = publicBr.findPair(hashArray, keyName);
+			if (!pair) {
+				pair = {};
+				hashArray.push(pair);
+			}
+			pair[keyName] = value;
+			publicBr.setLocationHash(hashArray);
+		};
 
-        this.killHashValue = function (keyName) {
-            var hashArray = publicBr.getLocationHash();
-            var pair = publicBr.findPair(hashArray, keyName);
-            if (pair) {
-                hashArray.splice(pair.foundIndex, 1);
-                publicBr.setLocationHash(hashArray);
-            }
-        }
+		this.killHashValue = function (keyName) {
+			var hashArray = publicBr.getLocationHash();
+			var pair = publicBr.findPair(hashArray, keyName);
+			if (pair) {
+				hashArray.splice(pair.foundIndex, 1);
+				publicBr.setLocationHash(hashArray);
+			}
+		};
 
         //used as a blocking thread sleep for other threads to complete
-        this.sleep = function (milliSeconds) {
-            var endTime = new Date().getTime() + milliSeconds;
-            while (new Date().getTime() <= endTime) { }
-        }
+		this.sleep = function (milliSeconds) {
+			var endTime = new Date().getTime() + milliSeconds;
+			while (new Date().getTime() <= endTime) { var waste = new Date(); }
+		};
 
         //used to make an ajax call using JSON data
         //callback is a delegate function in the form of function(sender, response, stateobject)
         //returnFormat is optional and is the type of data expected form the return: 'html','xml','json', or 'text' defaults to 'json'
-        this.ajax = function (url, method, jsonData, callback, returnFormat) {
-            internalBr.ajaxCall(internalBr, win, url, method, JSON.stringify(jsonData), callback, callback, null, null, null, null, null, returnFormat);
-        }
+		this.ajax = function (url, method, jsonData, callback, returnFormat) {
+			internalBr.ajaxCall(internalBr, win, url, method, JSON.stringify(jsonData), callback, callback, null, null, null, null, null, returnFormat);
+		};
 
-        this.getUrl = function () {
-            var tostring = function () {
-                return this.protocol + "//" + this.host + this.pathname + this.search + this.hash;
-            };
-            function F() {
-                $.extend(this, location);
-                this.toString = tostring;
-            }
-            return new F();
-        }
+		this.getUrl = function () {
+			var tostring = function () {
+				return this.protocol + "//" + this.host + this.pathname + this.search + this.hash;
+			};
+			function F() {
+				$.extend(this, location);
+				this.toString = tostring;
+			}
+			return new F();
+		};
     }
 
     publicBr = new publicBr();
@@ -1553,7 +1592,12 @@ var Brisk = Brisk || function ($, win) {
     //default custom attributes
     publicBr.registerAttr(internalBr._ajaxViewAttributeName, internalBr.brView);
     publicBr.registerAttr(internalBr._viewRefreshAttributeName, internalBr.brRefresh);
-    publicBr.registerAttr(internalBr._ajaxAttributeName, internalBr.brAjax);
+	publicBr.registerAttr(internalBr._ajaxAttributeName, internalBr.brAjax);
+	publicBr.registerAttr(internalBr._restGet, internalBr.brRestGet);
+	publicBr.registerAttr(internalBr._restPut, internalBr.brRestPut);
+	publicBr.registerAttr(internalBr._restPost, internalBr.brRestPost);
+	publicBr.registerAttr(internalBr._restPatch, internalBr.brRestPatch);
+	publicBr.registerAttr(internalBr._restDelete, internalBr.brRestDelete);
     publicBr.registerAttr(internalBr._noSelectAttributeName, internalBr.brNoSelect);
     publicBr.registerAttr(internalBr._noDragAttributeName, internalBr.brNoDrag);
 
@@ -1572,4 +1616,3 @@ var Brisk = Brisk || function ($, win) {
 //create global single class instance references
 var B_ = Brisk($, window); //inject jQuery and global window dependencies
 Brisk = B_; //re-assign seperately for strict-mode adherance
-

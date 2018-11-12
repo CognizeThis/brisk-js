@@ -31,7 +31,7 @@
                 e.preventDefault();
                 elem.brPhoneKeyPressed = false;
             } else if (eventType === "keydown") {
-                var keyCode = (e.which) ? e.which : e.keyCode;
+                var keyCode = e.which ? e.which : e.keyCode;
                 if (keyCode === 46) { //delete
                     e.preventDefault();
                     isDeleteKey = true;
@@ -44,7 +44,7 @@
 
             if (!keyVal && !isDeleteKey)
                 return !e.isDefaultPrevented();
-                        
+
             //handle selection range and new digits
             var oldVal = $elem.val().replaceAt(caretStart, caretEnd, keyVal);
 
@@ -69,7 +69,7 @@
             //block invalid keystrokes and restrict length
             //let mask characters be typed
             var invalidKeyMatch = brInst.rxNonNumber.exec(keyVal);
-            if (digits.length > digitCount || (!isDeleteKey && invalidKeyMatch && keyVal !== mask[caretStart]))
+            if (digits.length > digitCount || !isDeleteKey && invalidKeyMatch && keyVal !== mask[caretStart])
                 return !e.isDefaultPrevented();
 
             //mask replacement
@@ -114,7 +114,7 @@
                     var mask = PhoneMask._masks[digitCount - 10]; //select appropriate phone mask
 
                     var events = "input keydown";
-                    $(elem).on(events, function (e) { PhoneMask._phoneMask(e, brInst, elem, digitCount, mask) });
+					$(elem).on(events, function (e) { PhoneMask._phoneMask(e, brInst, elem, digitCount, mask); });
 
                 } catch (ex) {
                     error = "ERROR: " + ex;

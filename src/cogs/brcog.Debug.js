@@ -40,12 +40,12 @@
                     }
                     var message = oe.message;
                     if (message === "Unspecified error.") return;
-                    var errorType = ((oe.name) ? oe.name : "Error");
+                    var errorType = oe.name ? oe.name : "Error";
                     var parentProc;
                     var procedure;
-                    var fileName = ((oe.filename) ? oe.filename : oe.sourceURL);
-                    var lineNumber = ((oe.lineno) ? oe.lineno : oe.line);
-                    var colNumber = ((oe.colno) ? oe.colno : "?");
+                    var fileName = oe.filename ? oe.filename : oe.sourceURL;
+                    var lineNumber = oe.lineno ? oe.lineno : oe.line;
+                    var colNumber = oe.colno ? oe.colno : "?";
                     if (oe.stack) try {
                         var matches = (/(?=at\s)[^\(|@]*/gmi).exec(oe.stack);
                         if (!matches)
@@ -60,7 +60,7 @@
                         colNumber = splits[1];
                         if (matches.length > 0)
                             parentProc = matches[1].trim();
-                    } catch (ex) { }
+					} catch (ex) { procedure = null; }
                     debugger;
                     //alert(errorType + "\n" +((parentProc) ? "Owner - " + parentProc + " \n" : "") + ((procedure) ? "Procedure - " + procedure + " \n" : "") + "Url - " + fileName + " \nLine/Col - " + lineNumber + ":" + colNumber + " \nError - " + message + ((oe.stack) ? " \nStack - \n" + oe.stack : ""));
                 };

@@ -34,7 +34,7 @@
 
     function UploadFile() {
         //protected variables
-        this._version = "17.2.0";
+		this._version = "18.11.8";
         this._attributeName = "br-uploadfile";
 
         //called when an element with br-uploadfile attribute is found
@@ -256,7 +256,9 @@
                     options.startstopcallback(elem, true);
                 }
                 //begin data chunk queuing
-                fReader.readAsArrayBuffer(fileObj);
+				setTimeoutW(function () {
+					fReader.readAsArrayBuffer(fileObj);
+				}, 5);
             }
         };
 
