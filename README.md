@@ -1,6 +1,6 @@
 # brisk-js  
 ## A rapid HTML development framework and toolset
-*Current Core Version:* [18.11.12](https://github.com/CognizeThis/brisk-js/releases/tag/v18.11.12)
+*Current Core Version:* [20.07.27](https://github.com/CognizeThis/brisk-js/releases/tag/v20.07.27)
 
 *-Note: Currently, Brisk is dependent upon **JQuery**, in order to aid with compatibility issues. An independent version is planned for the future. But for now, as long as a version of Jquery is referenced before the Brisk library is loaded, it should work in conjunction with older sites quite well.*  
 
