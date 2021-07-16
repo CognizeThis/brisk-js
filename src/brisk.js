@@ -13,12 +13,12 @@
 *  br-call="[javascript function/statement]([params])": Calls a script, value specifies the javascript you wish to be called. (can use {{br-id}})
 *
 *  br-noSelect="[bool]": Defaults to true. Prevents cursor-drag-selecting an element and all of it's children unless that child is a form input element.
-*       You may place a true attribute directly on an input element to enable the same behavior. Set to false an place on a specific child element you wish
-*       to allow selection even though a parent may have this enabled.
+*       You may place a true attribute directly on an input element to enable the same behavior. Set to false and place on a specific child element you wish
+*       to allow selection, even though a parent may have this enabled.
 *
 *  br-noDrag="[bool]": Defaults to true. Prevents dragging of an element and all of it's children unless that child is a form input element.
-*       You may place a true attribute directly on an input element to enable the same behavior. Set to false an place on a specific child element you wish
-*       to allow selection even though a parent may have this enabled.
+*       You may place a true attribute directly on an input element to enable the same behavior. Set to false and place on a specific child element you wish
+*       to allow selection, even though a parent may have this enabled.
 *
 *  br-ajax="{stateObject}": Used to make a single page ajax call. The value of the attribute represents a asychronous state object and is in
 *       JSON format which can also trigger certain behavior as well as being used to pass state information.
@@ -43,6 +43,8 @@
 *       "errorCallback"[delegate(sender, response, stateObject)]: Optional. A function which will be called when an error occurs on the ajax server request.
 *       "startStopCallback"[delegate(sender, isStart): Optional. A function which is called twice, once when the ajax call begins, and once when the call
 *                               is completed. Used to allow the user to set wait indicators.
+*       "headers"[object]:      Optional. A delegate which returns an object or an objact of header keys and thier related values. If left null, defaults to
+*								standard accept and content-type headers built upon sendFormat, returnFormat, and encoding values.
 *       [Any other key/value pair desired as part of the state object]: This includes br-id references and javascript function delegates.
 *
 *  br-view="{stateObject}": Used to make read a single page html update region call to an ajax service. The value of the attribute represents a asychronous
@@ -65,9 +67,13 @@
 *                               if omitted, the error html will shunt directly to render upon the element.
 *       "startStopCallback"[delegate(sender, isStart): Optional. A function which is called twice, once when the ajax call begins, and once when the call
 *                               is completed. Used to allow the user to set wait indicators.
+*       "headers"[object]:      Optional. A delegate which returns an object or an objact of header keys and thier related values. If left null, defaults to
+*								standard accept and content-type headers built upon sendFormat, returnFormat, and encoding values.
 *       [Any other key/value pair desired as part of the state object]: This includes br-id references and javascript function delegates.
 *
-*  brRefresh="[br-id]": Used to link a refresh command to a specific br-view through a br-id.
+*  br-Refresh="[br-id]": Used to link a refresh command to a specific br-view through a br-id.
+*
+*  br-load="[html resource url]": Used to load a html resource file contents into an element.
 */
 
 //polyfill to extend the String object to add the replaceChr function for a single character
@@ -443,7 +449,7 @@ var Brisk = Brisk || function ($, win) {
 
 	function internalBr() {
 		//br instance members
-		var _version = "20.07.26";
+		var _version = "21.07.15";
 		this._ids = {}; //quick lookup for br-id elements
 		//initial list of built-in custom attributes and their associated handlers
 		this._attrs = {}; //delegate format: function(currentBriskInstance, elementWithAttribute)
@@ -453,13 +459,14 @@ var Brisk = Brisk || function ($, win) {
 		this._ajaxViewAttributeName = "br-view";
 		this._viewRefreshAttributeName = "br-refresh";
 		this._ajaxAttributeName = "br-ajax";
-		this._restGet = "br-restGet";
-		this._restPut = "br-restPut";
-		this._restPost = "br-restPost";
-		this._restPatch = "br-restPatch";
-		this._restDelete = "br-restDelete";
+		this._restGetAttributeName = "br-restGet";
+		this._restPutAttributeName = "br-restPut";
+		this._restPostAttributeName = "br-restPost";
+		this._restPatchAttributeName = "br-restPatch";
+		this._restDeleteAttributeName = "br-restDelete";
 		this._noSelectAttributeName = "br-noSelect";
 		this._noDragAttributeName = "br-noDrag";
+		this._loadAttributeName = "br-load";
 		this._allowedServerThreads = 6; //maximum concurrent asychronous server operations, default to 6
 		this._threadRetryInterval = 100; //in milliseconds, the amount of time to re-poll a sever request if it was postponed to wait for a free thread
 		this.isDebug = false;
@@ -517,6 +524,23 @@ var Brisk = Brisk || function ($, win) {
 			return true;
 		};
 
+		this._installAnchorTracking = function (elem) {
+			if (elem.brAnchorSet) return true;
+			elem.brAnchorSet = true;
+			$(elem).on("click", function (e) {
+				var href = elem.attributes["href"];
+				if (href && href.value) {
+					var url = null;
+					try {
+						url = new URL(href.value);
+					}
+					catch (ex) {
+					}
+					$(B_).trigger("anchorclick", [elem, e, url]);
+				}
+			});
+		};
+
 		//called when certain attributes need a bind/re-bind
 		this.brInit = function (brInst, elem, down) {
 			if (down) {
@@ -544,6 +568,10 @@ var Brisk = Brisk || function ($, win) {
 			$found = $("input[type='text'],textarea");
 			if ($found.length > 0)
 				$found.each(function (key, childElem) { return brInst._installCaretTracking(childElem); }); //install new functionality onto text box inputs
+
+			$found = $('a');
+			if ($found.length > 0)
+				$found.each(function (key, childElem) { return brInst._installAnchorTracking(childElem); }); //install new functionality onto anchor tags
 
 			var brDebug = brInst._attrs[brInst._debugAttributeName];
 			if (brDebug) {
@@ -586,63 +614,29 @@ var Brisk = Brisk || function ($, win) {
 				elem.brCallSet = true;
 				var attr = elem.attributes[brInst._jsCallAttributeName];
 				var fullVal = attr.value;
+				var quoteRx = new RegExp(brInst._jsCallAttributeName + "\\s*=\\s*'", "gmi");
+				var quoted = !quoteRx.test(elem.outerHTML);
 
 				//parse individual statements
 				var statements = fullVal.split(";");
 				for (var s = 0; s < statements.length; s++) {
 					var val = statements[s].trim();
+					if (val === "") continue;
 
-					var entryFunc = win;
-					var funcStart = 0;
+					var seekPos = 0;
 					do {
-						var funcName = val;
-						var funcEnd = val.length;
-						var encStart = val.indexOf("(", funcStart) + 1;
-						var encEnd = val.indexOf(")", encStart);
-						if (encStart > funcStart || encEnd > encStart) {
-							funcEnd = encStart - 1;
-							funcName = val.substring(0, funcEnd);
-						} else { //execute literal
-							eval(funcName);
-							continue;
+						var encStart = val.indexOf("{{", seekPos);
+						seekPos = val.indexOf("}}", encStart) + 2;
+						if (encStart > -1 && seekPos > -1) {
+							var brId = val.substring(encStart + 2, seekPos - 2);
+							var ret = "null";
+							var elem = B_.getBrElement(brId);
+							if (elem)
+								ret = "B_.getBrElement(" + (quoted ? "'" : "\"") + brId + (quoted ? "'" : "\"") + ")";
+							val = val.replaceAt(encStart, seekPos, ret);
 						}
-
-						//parse function parameters
-						var paramNames = val.substring(encStart, encEnd).split(",");
-						var params = [];
-						for (var i = 0; i < paramNames.length; i++) {
-							var paramName = paramNames[i].trim();
-							var dmStart = paramName.indexOf("{{") + 2;
-							var param = null;
-							if (dmStart > 1) { //br-id lookup
-								var dmEnd = paramName.indexOf("}}", dmStart) - 2;
-								if (dmEnd > dmStart)
-									param = brInst._ids[paramName.substring(dmStart, dmStart + dmEnd).trim()];
-							} else { //standard variable
-								try {
-									param = eval(paramName);
-								} catch (ex) { param = null; }
-							}
-							params.push(param);
-						}
-
-						var func = entryFunc;
-						var namespaces = funcName.split("."); //parse resolves
-						for (var n = 0; n < namespaces.length; n++)
-							func = func[namespaces[n]];
-
-						//execute function
-						try {
-							if (func) entryFunc = func.apply(elem, params);
-						}
-						catch (ex) {
-							//must invoke as global::window
-							entryFunc = func.apply(win, params);
-						}
-
-						funcStart = val.indexOf(").", encEnd) + 2; //check for daisy-chained functions
-					} while (funcStart > 1);
-
+					} while (seekPos > 1);
+					B_.eval(val, elem);
 				}
 				attr.value = ""; //obfuscate attribute after processed
 			}
@@ -714,7 +708,7 @@ var Brisk = Brisk || function ($, win) {
 		};
 
 		//private, meant to be called from public ajaxCall
-		this._ajaxCall = function (url, method, sendData, newHandler, progressHandler, progressCalc, crossDomain, sendFormat, textEncoding, returnFormat) {
+		this._ajaxCall = function (url, method, sendData, newHandler, progressHandler, progressCalc, crossDomain, sendFormat, textEncoding, returnFormat, headers) {
 			if (crossDomain) $.support.cors = true;
 
 			$.ajax({
@@ -750,10 +744,10 @@ var Brisk = Brisk || function ($, win) {
 						return output;
 					}
 				},
-				headers: {
+				headers: ((headers) ? headers : {
 					Accept: ((sendFormat) ? sendFormat : "*/*"),
 					Host: win.location.Host
-				},
+				}),
 				url: url,
 				type: (method) ? method : "GET",
 				contentType: ((sendFormat) ? sendFormat : "application/json") + ";charset=" + ((textEncoding) ? textEncoding : "utf-8"),
@@ -767,7 +761,7 @@ var Brisk = Brisk || function ($, win) {
 			});
 		};
 
-		this.ajaxCall = function (brInst, elem, url, method, sendData, dataHandler, errorHandler, startStopHandler, progressHandler, crossDomain, sendFormat, textEncoding, returnFormat) {
+		this.ajaxCall = function (brInst, elem, url, method, sendData, dataHandler, errorHandler, startStopHandler, progressHandler, crossDomain, sendFormat, textEncoding, returnFormat, headers) {
 
 			var newHandler = function (htmlContentOrResponse, msg, htmlResponseOrMsg) {
 				var response = htmlContentOrResponse;
@@ -1101,6 +1095,10 @@ var Brisk = Brisk || function ($, win) {
 					url = (parentForm) ? parentForm.action : ".";
 				}
 
+				var headers = null;
+				valCheck = options.expectStr("headers");
+				if (valCheck) headers = valcheck;
+
 				var gatherInputs = false;
 				valCheck = options.expectBool("gatherinputs");
 				if (valCheck !== null)
@@ -1137,7 +1135,7 @@ var Brisk = Brisk || function ($, win) {
 
 					var sendDataValue = getSendDataValue(brInst, elem, options, gatherInputs, sendData, errorCallback);
 
-					brInst.ajaxCall(brInst, elem, url, method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, crossDomain, sendFormatCode, encoding, returnFormat);
+					brInst.ajaxCall(brInst, elem, url, method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, crossDomain, sendFormatCode, encoding, returnFormat, headers);
 					return true;
 				});
 
@@ -1146,23 +1144,23 @@ var Brisk = Brisk || function ($, win) {
 
 		//rest aliases
 		this.brRestGet = function (brInst, elem) {
-			brInst.brAjax(brInst, elem, brInst._restGet, "GET");
+			brInst.brAjax(brInst, elem, brInst._restGetAttributeName, "GET");
 		};
 
 		this.brRestPut = function (brInst, elem) {
-			brInst.brAjax(brInst, elem, brInst._restPut, "PUT");
+			brInst.brAjax(brInst, elem, brInst._restPutAttributeName, "PUT");
 		};
 
 		this.brRestPost = function (brInst, elem) {
-			brInst.brAjax(brInst, elem, brInst._restPost, "POST");
+			brInst.brAjax(brInst, elem, brInst._restPostAttributeName, "POST");
 		};
 
 		this.brRestPatch = function (brInst, elem) {
-			brInst.brAjax(brInst, elem, brInst._restPatch, "PATCH");
+			brInst.brAjax(brInst, elem, brInst._restPatchAttributeName, "PATCH");
 		};
 
 		this.brRestDelete = function (brInst, elem) {
-			brInst.brAjax(brInst, elem, brInst._restDelete, "DELETE");
+			brInst.brAjax(brInst, elem, brInst._restDeleteAttributeName, "DELETE");
 		};
 
 		//called when an element with br-View attribute is found
@@ -1296,6 +1294,17 @@ var Brisk = Brisk || function ($, win) {
 			});
 		};
 
+		this.brLoad = function (brInst, elem) {
+			var attrName = brInst._loadAttributeName;
+			if (elem["has_" + attrName]) return null;
+			elem["has_" + attrName] = true; //single initialization
+
+			var attr = elem.attributes[attrName];
+			var url = attr.value
+			attr.value = "";
+			brInst.ajaxCall(brInst, elem, url, "GET", null, function (data, response) { $(elem).html(data);	}, null, null, null, false, "text/html", "utf-8", "html");
+		};
+
 		//called when an element with br-noSelect attribute is found
 		this.brNoSelect = function (brInst, elem) {
 			var $topElem = $(elem);
@@ -1412,9 +1421,19 @@ var Brisk = Brisk || function ($, win) {
 		this.debugAttributeName = internalBr._debugAttributeName;
 
 		//Brisk public methods
+		this.eval = function (str, context) {
+			var func = Function('"use strict"; return (' + str + ');');
+			if (context) return func.apply(context);
+			return func();
+		};
+
 		this.getBrElement = function (brId) {
 			if (typeof brId !== "string") throw "getBrElement method passed invalid arguments";
 			return internalBr._ids[brId];
+		};
+
+		this.ajax = function (url, method, callback, sendData, headers, crossDomain, sendFormat, textEncoding, returnFormat) {
+			internalBr._ajaxCall(url, method, sendData, callback, null, null, crossDomain, sendFormat, textEncoding, returnFormat, headers);
 		};
 
 		this.registerAttr = function (attributeName, handler) {
@@ -1570,12 +1589,12 @@ var Brisk = Brisk || function ($, win) {
 			while (new Date().getTime() <= endTime) { var waste = new Date(); }
 		};
 
-		//used to make an ajax call using JSON data
+		/*//used to make an ajax call using JSON data
 		//callback is a delegate function in the form of function(sender, response, stateobject)
 		//returnFormat is optional and is the type of data expected form the return: 'html','xml','json', or 'text' defaults to 'json'
 		this.ajax = function (url, method, jsonData, callback, returnFormat) {
 			internalBr.ajaxCall(internalBr, win, url, method, JSON.stringify(jsonData), callback, callback, null, null, null, null, null, returnFormat);
-		};
+		};*/
 
 		this.getUrl = function () {
 			var tostring = function () {
@@ -1595,13 +1614,14 @@ var Brisk = Brisk || function ($, win) {
 	publicBr.registerAttr(internalBr._ajaxViewAttributeName, internalBr.brView);
 	publicBr.registerAttr(internalBr._viewRefreshAttributeName, internalBr.brRefresh);
 	publicBr.registerAttr(internalBr._ajaxAttributeName, internalBr.brAjax);
-	publicBr.registerAttr(internalBr._restGet, internalBr.brRestGet);
-	publicBr.registerAttr(internalBr._restPut, internalBr.brRestPut);
-	publicBr.registerAttr(internalBr._restPost, internalBr.brRestPost);
-	publicBr.registerAttr(internalBr._restPatch, internalBr.brRestPatch);
-	publicBr.registerAttr(internalBr._restDelete, internalBr.brRestDelete);
+	publicBr.registerAttr(internalBr._restGetAttributeName, internalBr.brRestGet);
+	publicBr.registerAttr(internalBr._restPutAttributeName, internalBr.brRestPut);
+	publicBr.registerAttr(internalBr._restPostAttributeName, internalBr.brRestPost);
+	publicBr.registerAttr(internalBr._restPatchAttributeName, internalBr.brRestPatch);
+	publicBr.registerAttr(internalBr._restDeleteAttributeName, internalBr.brRestDelete);
 	publicBr.registerAttr(internalBr._noSelectAttributeName, internalBr.brNoSelect);
 	publicBr.registerAttr(internalBr._noDragAttributeName, internalBr.brNoDrag);
+	publicBr.registerAttr(internalBr._loadAttributeName, internalBr.brLoad);
 
 	//document startup initialization
 	$(document).ready(function () {
