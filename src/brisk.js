@@ -1,5 +1,4 @@
-﻿// <reference path="../jquery.intellisense.js" />
-"use strict";
+﻿"use strict";
 
 /*
 *  Script: brisk.js (custom attributes)
@@ -467,6 +466,8 @@ var Brisk = Brisk || function ($, win) {
 		this._noSelectAttributeName = "br-noSelect";
 		this._noDragAttributeName = "br-noDrag";
 		this._loadAttributeName = "br-load";
+		this._clickAttributeName = "br-click";
+
 		this._allowedServerThreads = 6; //maximum concurrent asychronous server operations, default to 6
 		this._threadRetryInterval = 100; //in milliseconds, the amount of time to re-poll a sever request if it was postponed to wait for a free thread
 		this.isDebug = false;
@@ -614,33 +615,39 @@ var Brisk = Brisk || function ($, win) {
 				elem.brCallSet = true;
 				var attr = elem.attributes[brInst._jsCallAttributeName];
 				var fullVal = attr.value;
-				var quoteRx = new RegExp(brInst._jsCallAttributeName + "\\s*=\\s*'", "gmi");
-				var quoted = !quoteRx.test(elem.outerHTML);
-
-				//parse individual statements
-				var statements = fullVal.split(";");
-				for (var s = 0; s < statements.length; s++) {
-					var val = statements[s].trim();
-					if (val === "") continue;
-
-					var seekPos = 0;
-					do {
-						var encStart = val.indexOf("{{", seekPos);
-						seekPos = val.indexOf("}}", encStart) + 2;
-						if (encStart > -1 && seekPos > -1) {
-							var brId = val.substring(encStart + 2, seekPos - 2);
-							var ret = "null";
-							var elem = B_.getBrElement(brId);
-							if (elem)
-								ret = "B_.getBrElement(" + (quoted ? "'" : "\"") + brId + (quoted ? "'" : "\"") + ")";
-							val = val.replaceAt(encStart, seekPos, ret);
-						}
-					} while (seekPos > 1);
-					B_.eval(val, elem);
-				}
+				this._parseEval(brInst, attr.name, elem, fullVal);
 				attr.value = ""; //obfuscate attribute after processed
 			}
 			return null;
+		};
+
+		this._parseEval = function (brInst, attrName, elem, fullVal, noRun) {
+			var quoteRx = new RegExp(attrName + "\\s*=\\s*'", "gmi");
+			var quoted = !quoteRx.test(elem.outerHTML);
+
+			//parse individual statements
+			var combined = "";
+			var statements = fullVal.split(";");
+			for (var s = 0; s < statements.length; s++) {
+				var val = statements[s].trim();
+				if (val === "") continue;
+
+				var seekPos = 0;
+				do {
+					var encStart = val.indexOf("{{", seekPos);
+					seekPos = val.indexOf("}}", encStart) + 2;
+					if (encStart > -1 && seekPos > -1) {
+						var brId = val.substring(encStart + 2, seekPos - 2);
+						var ret = "null";
+						var elem = B_.getBrElement(brId);
+						if (elem)
+							ret = "B_.getBrElement(" + (quoted ? "'" : "\"") + brId + (quoted ? "'" : "\"") + ")";
+						val = val.replaceAt(encStart, seekPos, ret);
+					}
+				} while (seekPos > 1);
+				combined += val + "; ";
+			}
+			return B_.eval(combined, elem, noRun);
 		};
 
 		//parseJSON which allows brisk identifier lookups and references
@@ -797,6 +804,8 @@ var Brisk = Brisk || function ($, win) {
 						startStopHandler(elem, false);
 					}
 				}
+
+				$(B_).trigger("ajaxEnd", [elem, url]);
 			};
 
 			var progressCalc = null;
@@ -1296,13 +1305,28 @@ var Brisk = Brisk || function ($, win) {
 
 		this.brLoad = function (brInst, elem) {
 			var attrName = brInst._loadAttributeName;
-			if (elem["has_" + attrName]) return null;
+			if (elem["has_" + attrName]) return;
 			elem["has_" + attrName] = true; //single initialization
 
 			var attr = elem.attributes[attrName];
 			var url = attr.value
 			attr.value = "";
-			brInst.ajaxCall(brInst, elem, url, "GET", null, function (data, response) { $(elem).html(data);	}, null, null, null, false, "text/html", "utf-8", "html");
+			this._loadFile(brInst, elem, url);
+		};
+
+		this.brClick = function (brInst, elem) {
+			if (!elem.brClickSet) {
+				elem.brClickSet = true;
+				var attr = elem.attributes[brInst._clickAttributeName];
+				var fullVal = attr.value;
+				var func = brInst._parseEval(brInst, attr.name, elem, fullVal, true);
+				$(elem).click(func);
+				attr.value = ""; //obfuscate attribute after processed
+			}
+		};
+
+		this._loadFile = function (brInst, elem, url) {
+			brInst.ajaxCall(brInst, elem, url, "GET", null, function (data, response) { $(elem).html(data); }, null, null, null, false, "text/html", "utf-8", "html");
 		};
 
 		//called when an element with br-noSelect attribute is found
@@ -1412,6 +1436,23 @@ var Brisk = Brisk || function ($, win) {
 			$topElem.on(noDragAction, prevent);
 		};
 
+		this._scrubXSS = function (scriptText) {
+			var xssIndex = scriptText.indexOf("open");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "O");
+			xssIndex = scriptText.indexOf("location");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "L");
+			xssIndex = scriptText.indexOf("cookie");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "C");
+			xssIndex = scriptText.indexOf("debugger");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "D");
+			xssIndex = scriptText.indexOf("throw");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "T");
+			xssIndex = scriptText.indexOf("eval");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "E");
+			xssIndex = scriptText.indexOf("apply");
+			if (xssIndex > -1) scriptText = scriptText.replaceChr(xssIndex, "A");
+			return scriptText;
+		};
 	}
 
 	//initialize and privatize class for injection
@@ -1421,11 +1462,22 @@ var Brisk = Brisk || function ($, win) {
 		this.debugAttributeName = internalBr._debugAttributeName;
 
 		//Brisk public methods
-		this.eval = function (str, context) {
+		this.eval = function (str, context, noRun) {
+			str = internalBr._scrubXSS(str);
+			var func = Function('"use strict"; ' + str );
+			if (!noRun) {
+				if (context) return func.apply(context);
+				return func();
+			}
+			return func;
+		};
+
+		this.evalObj = function (str, context) {
+			str = internalBr._scrubXSS(str);
 			var func = Function('"use strict"; return (' + str + ');');
 			if (context) return func.apply(context);
 			return func();
-		};
+		}
 
 		this.getBrElement = function (brId) {
 			if (typeof brId !== "string") throw "getBrElement method passed invalid arguments";
@@ -1596,6 +1648,10 @@ var Brisk = Brisk || function ($, win) {
 			internalBr.ajaxCall(internalBr, win, url, method, JSON.stringify(jsonData), callback, callback, null, null, null, null, null, returnFormat);
 		};*/
 
+		this.loadFile = function (elem, url) {
+			internalBr._loadFile(internalBr, elem, url);
+		};
+
 		this.getUrl = function () {
 			var tostring = function () {
 				return this.protocol + "//" + this.host + this.pathname + this.search + this.hash;
@@ -1622,6 +1678,7 @@ var Brisk = Brisk || function ($, win) {
 	publicBr.registerAttr(internalBr._noSelectAttributeName, internalBr.brNoSelect);
 	publicBr.registerAttr(internalBr._noDragAttributeName, internalBr.brNoDrag);
 	publicBr.registerAttr(internalBr._loadAttributeName, internalBr.brLoad);
+	publicBr.registerAttr(internalBr._clickAttributeName, internalBr.brClick);
 
 	//document startup initialization
 	$(document).ready(function () {
