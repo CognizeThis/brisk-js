@@ -1295,7 +1295,7 @@ var Brisk = Brisk || function ($, win) {
 					//var sendDataValue = getSendDataValue(brInst, elem, options, gatherInputs, sendData, errorCallback);
 					var sendDataValue = sendData;
 
-					brInst.ajaxCall(brInst, elem, elem["brViewUrl"], method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, true, "application/json", "utf-8", "html");
+					brInst.ajaxCall(brInst, elem, elem["brViewUrl"], method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, true, "*/*", "utf-8", "html");
 				};
 
 				//install a refresh function on the element
@@ -1321,7 +1321,7 @@ var Brisk = Brisk || function ($, win) {
 				var $elem = $(elem);
 
 				var valCheck = options.id;
-				if (valCheck) elem.brRefresh = valcheck;
+				if (valCheck) elem.brRefresh = valCheck;
 
 				valCheck = options.url;
 				if (valCheck) elem.brUrl = valCheck;
