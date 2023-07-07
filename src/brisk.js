@@ -70,10 +70,22 @@
 *								standard accept and content-type headers built upon sendFormat, returnFormat, and encoding values.
 *       [Any other key/value pair desired as part of the state object]: This includes br-id references and javascript function delegates.
 *
-*  br-Refresh="[br-id]": Used to link a refresh command to a specific br-view through a br-id.
+*  br-refresh="{stateObject}": Used to link a refresh command to a specific br-view through a br-id.
+*		"id"{{object}}:			The brisk object reference id of the br-view element to refresh.
+*		"url"[string]:			Optional. Use this to override the url of the br-view with a different location.
+*
 *
 *  br-load="[html resource url]": Used to load a html resource file contents into an element.
 */
+
+//replaceAll() polyfill repalce all instances of a string within another string
+if (!String.prototype.replaceAll)
+	String.prototype.replaceAll = function (str, newStr) {
+		var a = (this + ""); //string copy to avoid extension reference bleeding
+		if (Object.prototype.toString.call(str).toLowerCase() === '[object regexp]') // If a regex pattern
+			return a.replace(str, newStr);
+		return a.replace(new RegExp(str, 'g'), newStr); // If a string
+	};
 
 //polyfill to extend the String object to add the replaceChr function for a single character
 if (!String.prototype.replaceChr)
@@ -448,7 +460,7 @@ var Brisk = Brisk || function ($, win) {
 
 	function internalBr() {
 		//br instance members
-		var _version = "21.07.15";
+		var _version = "23.07.06";
 		this._ids = {}; //quick lookup for br-id elements
 		//initial list of built-in custom attributes and their associated handlers
 		this._attrs = {}; //delegate format: function(currentBriskInstance, elementWithAttribute)
@@ -979,6 +991,7 @@ var Brisk = Brisk || function ($, win) {
 		//is the root call of other REST verb aliases
 		this.brAjax = function (brInst, elem, attrNameOverride, overrideVerb) {
 			var attrName = (attrNameOverride) ? attrNameOverride : brInst._ajaxAttributeName;
+			var overrideCallback = function(e,d) { }
 			brInst.customAttributeWrap(brInst, elem, attrName, function (options) {
 
 				var $elem = $(elem);
@@ -998,7 +1011,10 @@ var Brisk = Brisk || function ($, win) {
 				}
 
 				var sendData = "";
-				valCheck = options.expectStr("data");
+				if (typeof options.data === "function")
+					valCheck = options.data;
+				else
+					valCheck = options.expectStr("data");
 				if (valCheck)
 					sendData = valCheck;
 
@@ -1080,19 +1096,21 @@ var Brisk = Brisk || function ($, win) {
 				if (valCheck && typeof valCheck === "function")
 					startStopCallback = valCheck;
 
-				var callback = null;
+				var callback = (overrideCallback) ? overrideCallback : null;
 				valCheck = options.callback;
-				if (!valCheck || typeof valCheck !== "function")
+				if (!overrideCallback && (!valCheck || typeof valCheck !== "function"))
 					throw "[callback] option is required and must be a function delegate of format: function(sender, response, stateObject).";
-				callback = valCheck;
+				if (!overrideCallback)
+					callback = valCheck;
 
 				var crossDomain = false;
 				valCheck = options.expectBool("crossdomain");
 				if (valCheck !== null)
 					crossDomain = valCheck;
 				if (!crossDomain && sendFormat === "json") {
-					sendFormat = "jsonp";
-					sendFormatCode = "text/plain";
+					//sendFormat = "jsonp";
+					//sendFormatCode = "text/plain";
+					sendFormat = "application/json";
 				}
 
 				var url = null;
@@ -1142,7 +1160,11 @@ var Brisk = Brisk || function ($, win) {
 						}
 					};
 
-					var sendDataValue = getSendDataValue(brInst, elem, options, gatherInputs, sendData, errorCallback);
+					var sendDataValue = null;
+					if (sendData && typeof sendData === "function")
+						sendDataValue = sendData(elem, options);
+					else
+						getSendDataValue(brInst, elem, options, gatherInputs, sendData, errorCallback);
 
 					brInst.ajaxCall(brInst, elem, url, method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, crossDomain, sendFormatCode, encoding, returnFormat, headers);
 					return true;
@@ -1200,6 +1222,7 @@ var Brisk = Brisk || function ($, win) {
 					var parentForm = $elem.parent("form")[0];
 					url = (parentForm) ? parentForm.action : ".";
 				}
+				if (url) elem["brViewUrl"] = url;
 
 				var method = "GET";
 				valCheck = options.method;
@@ -1256,19 +1279,23 @@ var Brisk = Brisk || function ($, win) {
 					var callBackNew = function (data, response) {
 						refreshTriggered = false;
 						$(elem).html(data);
-						if (refreshCallback) {
-							refreshCallback(response);
-							refreshCallback = null;
-						}
 						elem.brViewLoaded = true;
-						setTimeout(function () { brInst.brInit(brInst, elem); }, 1);
+						setTimeout(function () {
+							brInst.brInit(brInst, elem);
+							if (refreshCallback) {
+								setTimeout(function () {
+									refreshCallback(response);
+									refreshCallback = null;
+								}, 1);
+							}
+						}, 1);
 					};
 
 					//pre-calculate data just before request
 					//var sendDataValue = getSendDataValue(brInst, elem, options, gatherInputs, sendData, errorCallback);
 					var sendDataValue = sendData;
 
-					brInst.ajaxCall(brInst, elem, url, method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, true, "application/json", "utf-8", "html");
+					brInst.ajaxCall(brInst, elem, elem["brViewUrl"], method, sendDataValue, callBackNew, errorCallbackNew, startStopCallback, null, true, "application/json", "utf-8", "html");
 				};
 
 				//install a refresh function on the element
@@ -1291,15 +1318,25 @@ var Brisk = Brisk || function ($, win) {
 		this.brRefresh = function (brInst, elem) {
 			var attrName = brInst._viewRefreshAttributeName;
 			brInst.customAttributeWrap(brInst, elem, attrName, function (options) {
-				$(elem).click(function () {
-					for (var objIndex in options) {
-						var obj = options[objIndex];
-						if (obj && typeof (obj.brViewRefresh) === "function")
+				var $elem = $(elem);
+
+				var valCheck = options.id;
+				if (valCheck) elem.brRefresh = valcheck;
+
+				valCheck = options.url;
+				if (valCheck) elem.brUrl = valCheck;
+
+				if (elem.brRefresh) {
+					$elem.click(function () {
+						var obj = elem.brRefresh;
+						if (obj && typeof (obj.brViewRefresh) === "function") {
+							if (elem.brUrl) obj.brViewUrl = elem.brUrl;
 							obj.brViewRefresh();
+						}
 						else
 							console.log("Call [" + attrName + "]: " + brInst._idAttributeName + "=" + obj + " not found.");
-					}
-				});
+					});
+				}
 			});
 		};
 
@@ -1477,7 +1514,7 @@ var Brisk = Brisk || function ($, win) {
 			var func = Function('"use strict"; return (' + str + ');');
 			if (context) return func.apply(context);
 			return func();
-		}
+		};
 
 		this.getBrElement = function (brId) {
 			if (typeof brId !== "string") throw "getBrElement method passed invalid arguments";
@@ -1487,6 +1524,24 @@ var Brisk = Brisk || function ($, win) {
 		this.ajax = function (url, method, callback, sendData, headers, crossDomain, sendFormat, textEncoding, returnFormat) {
 			internalBr._ajaxCall(url, method, sendData, callback, null, null, crossDomain, sendFormat, textEncoding, returnFormat, headers);
 		};
+
+		this.rest = function (url, method) {
+			internalBr.brAjax(internalBr, elem, brInst._restPostAttributeName, "POST");
+		};
+
+		this.setView = function (elem, url, delayed, refreshInterval) {
+			if (elem["has_br-view"]) {
+				elem["brViewUrl"] = url;
+				elem.brViewRefresh();
+			} else {
+				var $elem = $(elem);
+				$elem.attr("br-view", "{url:'" + url + "'" +
+					(delayed ? ", dalyed:true" : "") +
+					(refreshInterval ? ", refreshInterval:" + refreshInterval : "") +
+				"}");
+				internalBr.brInit(internalBr, elem);
+			}
+		}
 
 		this.registerAttr = function (attributeName, handler) {
 			if (typeof attributeName !== "string" && typeof handler !== "function")
